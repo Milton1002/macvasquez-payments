@@ -125,11 +125,15 @@
   </div>
 
   <script>
-    // 1. Leer par谩metros de la URL (productos, monto, deviceId)
+    // 1. Leer parámetros de la URL (productos, monto e identificadores de quota)
     const urlParams = new URLSearchParams(window.location.search);
     let montoCentavos = urlParams.get('monto') || 0;
     const productosParam = urlParams.get('productos') || "";
-    const deviceId = urlParams.get('deviceId') || "";
+    const deviceId = urlParams.get('deviceId') || urlParams.get('code') || "";
+    const email = urlParams.get('email') || "";
+    const username = urlParams.get('username') || "";
+    const credits = urlParams.get('credits') || "";
+    const source = urlParams.get('source') || "";
 
     let total = 0;
 
@@ -168,7 +172,11 @@
       "https://pagos.macvasquez.com/order-status.html";
     const responseUrlParams = new URLSearchParams({
       productos: productosParam || "",
-      deviceId: deviceId || ""
+      deviceId: deviceId || "",
+      email: email || "",
+      username: username || "",
+      credits: credits || "",
+      source: source || ""
     });
 
     const data = {
