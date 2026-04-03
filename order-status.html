@@ -88,7 +88,7 @@
     const creditCount = parseInt(creditsValue, 10) || 0;
     const amountNumber = parseFloat(amountValue) || 0;
     if (creditCount <= 0 || amountNumber <= 0) return '';
-    return `Recarga manual (${creditCount} consultas)|1|${amountNumber.toFixed(2)}`;
+    return `Consulta Personas (${creditCount})|1|${amountNumber.toFixed(2)}`;
   }
 
   function getReturnDestination(sourceValue) {
