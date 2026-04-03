@@ -128,12 +128,21 @@
     // 1. Leer parámetros de la URL (productos, monto e identificadores de quota)
     const urlParams = new URLSearchParams(window.location.search);
     let montoCentavos = urlParams.get('monto') || 0;
-    const productosParam = urlParams.get('productos') || "";
+    const productosParamRaw = urlParams.get('productos') || "";
     const deviceId = urlParams.get('deviceId') || urlParams.get('code') || "";
     const email = urlParams.get('email') || "";
     const username = urlParams.get('username') || "";
     const credits = urlParams.get('credits') || "";
     const source = urlParams.get('source') || "";
+
+    function buildManualRechargeProducts(creditsValue, amountValue) {
+      const creditCount = parseInt(creditsValue, 10) || 0;
+      const amountNumber = parseFloat(amountValue) || 0;
+      if (creditCount <= 0 || amountNumber <= 0) return "";
+      return `Recarga manual (${creditCount} consultas)|1|${amountNumber.toFixed(2)}`;
+    }
+
+    const productosParam = productosParamRaw || buildManualRechargeProducts(credits, montoCentavos);
 
     let total = 0;
 
@@ -176,7 +185,8 @@
       email: email || "",
       username: username || "",
       credits: credits || "",
-      source: source || ""
+      source: source || "",
+      amount: (parseFloat(montoCentavos) || 0).toFixed(2)
     });
 
     const data = {
@@ -197,6 +207,15 @@
     const botonesContainer = document.getElementById("botones");
     const errorText = document.getElementById("errorText");
 
+    window.addEventListener("message", function (event) {
+      if (!event || !event.data || event.data.type !== "mv-payment-approved") return;
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(event.data, '*');
+        }
+      } catch (_) {}
+    });
+
     // 3. Crear bot贸n de pago con PayPhone
     fetch("https://pay.payphonetodoesposible.com/api/button/Prepare", {
       method: "POST",
@@ -211,7 +230,6 @@
         btnCard.className = "payment-button";
         btnCard.href = data.payWithCard;
         btnCard.target = "_blank";
-        btnCard.rel = "noopener";
         btnCard.innerHTML = `
           Pagar ahora con
           <img src="https://pay.payphonetodoesposible.com/Content/imgv3/payphone-h.svg" alt="PayPhone Logo">

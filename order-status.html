@@ -64,7 +64,7 @@
 
   <div class="mensaje" id="mensaje"></div>
 
-  <a class="btn-volver" href="https://www.macvasquez.com">Volver al inicio</a>
+  <a class="btn-volver" id="btnVolver" href="https://app.macvasquez.com">Volver a consultas</a>
 
 <script>
   function getQueryVariable(name) {
@@ -82,6 +82,44 @@
         precio: parseFloat(precio) || 0
       };
     });
+  }
+
+  function buildManualRechargeProducts(creditsValue, amountValue) {
+    const creditCount = parseInt(creditsValue, 10) || 0;
+    const amountNumber = parseFloat(amountValue) || 0;
+    if (creditCount <= 0 || amountNumber <= 0) return '';
+    return `Recarga manual (${creditCount} consultas)|1|${amountNumber.toFixed(2)}`;
+  }
+
+  function getReturnDestination(sourceValue) {
+    const source = String(sourceValue || '').toLowerCase();
+    if (source.includes('app') || source.includes('consulta')) {
+      return {
+        href: 'https://app.macvasquez.com',
+        label: 'Volver a consultas'
+      };
+    }
+    return {
+      href: 'https://www.macvasquez.com',
+      label: 'Volver al sitio'
+    };
+  }
+
+  function applyReturnDestination(sourceValue) {
+    const button = document.getElementById('btnVolver');
+    const destination = getReturnDestination(sourceValue);
+    if (!button) return destination;
+    button.href = destination.href;
+    button.textContent = destination.label;
+    return destination;
+  }
+
+  function redirectAfterSuccess(sourceValue) {
+    const destination = getReturnDestination(sourceValue);
+    if (!String(sourceValue || '').toLowerCase().includes('app')) return;
+    window.setTimeout(() => {
+      window.location.href = destination.href;
+    }, 3500);
   }
 
   function mostrarProductos(productos, container) {
@@ -142,12 +180,20 @@
   }
 
   function notifyParentApproved(payload) {
+    const message = {
+      type: 'mv-payment-approved',
+      payload: payload || {}
+    };
+
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({
-          type: 'mv-payment-approved',
-          payload: payload || {}
-        }, '*');
+        window.parent.postMessage(message, '*');
+      }
+    } catch (_) {}
+
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(message, '*');
       }
     } catch (_) {}
   }
@@ -155,11 +201,13 @@
   const id = getQueryVariable('id');
   const clientTxId = getQueryVariable('clientTransactionId');
   const productosParam = getQueryVariable('productos');
+  const amountParam = getQueryVariable('amount');
   const emailParam = getQueryVariable('email');
   const usernameParam = getQueryVariable('username');
   const deviceIdParam = getQueryVariable('deviceId');
   const creditsParam = getQueryVariable('credits');
   const sourceParam = getQueryVariable('source');
+  const returnTarget = applyReturnDestination(sourceParam);
 
   const token = 'Bearer OyVLzij-fpLpyYslzFH3cD86SZieQkMj18D36ibqIA0nYnZUHj3mrmGae-UCGc_5LvAQy-LngYEmi5yRqs9aO2UyQ4CITagKa5ng1rpuWZnx9ksf2Ki4NER_FWY3kxhQcu8tGlxGc6csS-q0R1Cvioe8fiNPcTwZBYHZ-cd0QlJtJRk0M1J4SWHxdSnqZszZ4bATNtB6xdNK93Ak-E8Jrnrv_vhCVMxNpttYue63qdyQq5kAd-vuRLBXAVDAl9f_sb7UtuY8EQRorhW074PRSFgJ7fjSPkY7I_jc9gakIXb1oQuEZ9X9UXPp1OcqS4VEACurCFMdp7eQwHpNe9_NgflubsQ';
 
@@ -180,7 +228,8 @@
 
       if (data.transactionStatus === 'Approved') {
         const resolvedEmail = emailParam || data.email || '';
-        const productos = parseProductos(productosParam);
+        const resolvedProductosParam = productosParam || buildManualRechargeProducts(creditsParam, amountParam || ((parseFloat(data.amount || 0) / 100).toFixed(2)));
+        const productos = parseProductos(resolvedProductosParam);
 
         contenedor.innerHTML = `
           <h2 style="color:#27ae60;">✔️ ¡Pago Aprobado!</h2>
@@ -188,6 +237,7 @@
           <div class="aviso-correo">
             <p>En unos minutos recibirás un mensaje con tus claves de acceso a: <strong>${resolvedEmail}</strong></p>
             <p>Recuerda revisar tu bandeja de entrada y la carpeta de spam.</p>
+            <p>Serás redirigido a <strong>${returnTarget.href.replace('https://', '')}</strong> en unos segundos.</p>
           </div>
         `;
 
@@ -201,7 +251,7 @@
           deviceId: deviceIdParam || '',
           credits: creditsParam || '',
           source: sourceParam || '',
-          productos: productosParam || '',
+          productos: resolvedProductosParam || '',
           transactionDate: new Date().toISOString(),
           payphoneData: data
         };
@@ -216,6 +266,7 @@
             deviceId: deviceIdParam || '',
             credits: creditsParam || ''
           });
+          redirectAfterSuccess(sourceParam);
         });
       } else {
         contenedor.innerHTML = `
