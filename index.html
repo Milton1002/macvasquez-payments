@@ -179,6 +179,10 @@
 
     const responseUrlBase =
       "https://pagos.macvasquez.com/order-status.html";
+    const amountForStatus = total > 0
+      ? total
+      : (parseFloat(urlParams.get('monto') || '0') || 0);
+
     const responseUrlParams = new URLSearchParams({
       productos: productosParam || "",
       deviceId: deviceId || "",
@@ -186,7 +190,7 @@
       username: username || "",
       credits: credits || "",
       source: source || "",
-      amount: (parseFloat(montoCentavos) || 0).toFixed(2)
+      amount: amountForStatus.toFixed(2)
     });
 
     const data = {

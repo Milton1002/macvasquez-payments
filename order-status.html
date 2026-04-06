@@ -72,16 +72,31 @@
     return urlParams.get(name);
   }
 
+  function clean(value) {
+    return String(value || '').trim();
+  }
+
   function parseProductos(productosStr) {
     if (!productosStr) return [];
     return productosStr.split(',').map(item => {
       const [nombre, cantidad, precio] = item.split('|');
       return {
-        nombre: decodeURIComponent(nombre),
+        nombre: decodeURIComponent(nombre || ''),
         cantidad: parseInt(cantidad, 10) || 0,
         precio: parseFloat(precio) || 0
       };
     });
+  }
+
+  function deriveCredits(productosStr, creditsValue) {
+    const explicit = parseInt(creditsValue, 10) || 0;
+    if (explicit > 0) return explicit;
+
+    return parseProductos(productosStr).reduce((acc, item) => {
+      const match = clean(item.nombre).match(/\((\d+)\s*(?:consultas?)?\)/i) || clean(item.nombre).match(/(\d+)\s*consultas?/i);
+      if (!match) return acc;
+      return acc + ((parseInt(match[1], 10) || 0) * (parseInt(item.cantidad, 10) || 1));
+    }, 0);
   }
 
   function buildManualRechargeProducts(creditsValue, amountValue) {
@@ -89,6 +104,35 @@
     const amountNumber = parseFloat(amountValue) || 0;
     if (creditCount <= 0 || amountNumber <= 0) return '';
     return `Consulta Personas (${creditCount})|1|${amountNumber.toFixed(2)}`;
+  }
+
+  function extractLicenseCode(scriptResponse) {
+    if (!scriptResponse || typeof scriptResponse !== 'object') return '';
+
+    const candidates = [
+      scriptResponse.licencia,
+      scriptResponse.licenseCode,
+      scriptResponse.code,
+      scriptResponse.clave,
+      scriptResponse.Clave,
+      scriptResponse.codigo,
+      scriptResponse.Codigo,
+      scriptResponse.data && scriptResponse.data.licencia,
+      scriptResponse.data && scriptResponse.data.licenseCode,
+      scriptResponse.data && scriptResponse.data.code,
+      scriptResponse.data && scriptResponse.data.clave,
+      scriptResponse.payload && scriptResponse.payload.licencia,
+      scriptResponse.payload && scriptResponse.payload.licenseCode,
+      scriptResponse.payload && scriptResponse.payload.code,
+      scriptResponse.payload && scriptResponse.payload.clave
+    ];
+
+    for (const value of candidates) {
+      const parsed = clean(value);
+      if (parsed) return parsed;
+    }
+
+    return '';
   }
 
   function getReturnDestination(sourceValue) {
@@ -179,6 +223,30 @@
     }
   }
 
+  async function acreditarQuota(payload, scriptResult) {
+    const resolvedLicenseCode = extractLicenseCode(scriptResult);
+    const resolvedCredits = deriveCredits(payload.productos || '', payload.credits || '');
+
+    const response = await fetch('https://api.macvasquez.com/api/payments/credit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: payload.id,
+        clientTransactionId: payload.clientTransactionId,
+        email: payload.email || '',
+        username: payload.username || '',
+        source: payload.source || '',
+        productos: payload.productos || '',
+        credits: resolvedCredits || payload.credits || '',
+        licenseCode: resolvedLicenseCode || '',
+        deviceId: payload.deviceId || '',
+        originalDeviceId: payload.deviceId || ''
+      })
+    });
+
+    return response.json().catch(() => ({ ok: false, error: 'INVALID_JSON' }));
+  }
+
   function notifyParentApproved(payload) {
     const message = {
       type: 'mv-payment-approved',
@@ -223,12 +291,13 @@
     })
   })
     .then(res => res.json())
-    .then(data => {
+    .then(async data => {
       const contenedor = document.getElementById('mensaje');
 
       if (data.transactionStatus === 'Approved') {
-        const resolvedEmail = emailParam || data.email || '';
+        const resolvedEmail = emailParam || data.email || data.optionalParameter2 || '';
         const resolvedProductosParam = productosParam || buildManualRechargeProducts(creditsParam, amountParam || ((parseFloat(data.amount || 0) / 100).toFixed(2)));
+        const resolvedCredits = deriveCredits(resolvedProductosParam, creditsParam || '');
         const productos = parseProductos(resolvedProductosParam);
 
         contenedor.innerHTML = `
@@ -249,25 +318,43 @@
           email: resolvedEmail,
           username: usernameParam || '',
           deviceId: deviceIdParam || '',
-          credits: creditsParam || '',
+          credits: resolvedCredits || creditsParam || '',
           source: sourceParam || '',
           productos: resolvedProductosParam || '',
           transactionDate: new Date().toISOString(),
           payphoneData: data
         };
 
-        enviarAScriptGoogle(payload).then(res => {
-          console.log('Registrado en Google Sheet:', res);
-          notifyParentApproved({
-            transactionId: id,
-            clientTransactionId: clientTxId,
-            email: resolvedEmail,
-            username: usernameParam || '',
-            deviceId: deviceIdParam || '',
-            credits: creditsParam || ''
-          });
-          redirectAfterSuccess(sourceParam);
+        let scriptResult = null;
+        try {
+          scriptResult = await enviarAScriptGoogle(payload);
+          console.log('Registrado en Google Sheet:', scriptResult);
+        } catch (scriptError) {
+          console.error('Error al registrar en Google Sheet:', scriptError);
+        }
+
+        let creditResult = null;
+        try {
+          creditResult = await acreditarQuota(payload, scriptResult || {});
+          console.log('Quota acreditada:', creditResult);
+        } catch (creditError) {
+          console.error('Error al acreditar quota:', creditError);
+        }
+
+        const resolvedLicenseCode = extractLicenseCode(scriptResult || {});
+
+        notifyParentApproved({
+          transactionId: id,
+          clientTransactionId: clientTxId,
+          email: resolvedEmail,
+          username: usernameParam || '',
+          deviceId: deviceIdParam || '',
+          credits: resolvedCredits || creditsParam || '',
+          licenseCode: resolvedLicenseCode || '',
+          quotaTotal: creditResult && creditResult.quotaTotal ? creditResult.quotaTotal : ''
         });
+
+        redirectAfterSuccess(sourceParam);
       } else {
         contenedor.innerHTML = `
           <h2 style="color:#e74c3c;">❌ Pago No Aprobado</h2>
@@ -295,6 +382,3 @@
 </script>
 </body>
 </html>
-
-
-
