@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="origin">
+  <title>Confirmando pago | MACVASQUEZ</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f7f9fb;
+      color: #102a43;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    main {
+      width: min(100%, 520px);
+      padding: 34px;
+      border: 1px solid #d9e2ec;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 16px 45px rgba(16, 42, 67, .08);
+    }
+    .brand {
+      display: block;
+      margin-bottom: 22px;
+      color: #486581;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .14em;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(27px, 6vw, 38px);
+      line-height: 1.1;
+    }
+    p {
+      margin: 0;
+      color: #486581;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    .status {
+      margin-top: 24px;
+      padding: 16px;
+      border: 1px solid #bcccdc;
+      border-radius: 12px;
+      background: #f0f4f8;
+    }
+    .status.success {
+      border-color: #7bcda2;
+      background: #eafaf1;
+      color: #126b3b;
+    }
+    .status.error {
+      border-color: #f0a6a6;
+      background: #fff1f1;
+      color: #8b1e1e;
+    }
+    .spinner {
+      width: 30px;
+      height: 30px;
+      margin: 0 auto 14px;
+      border: 3px solid #bcccdc;
+      border-top-color: #ff6c00;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    .actions {
+      display: none;
+      gap: 12px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .actions.visible { display: flex; }
+    a, button {
+      min-height: 44px;
+      padding: 11px 18px;
+      border: 0;
+      border-radius: 9px;
+      background: #ff6c00;
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    a.secondary {
+      background: #334e68;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="brand">MACVASQUEZ</span>
+    <h1 id="title">Confirmando tu pago</h1>
+    <p id="copy">Estamos validando la transacción con PayPhone. No cierres esta ventana.</p>
+    <div id="status" class="status" role="status" aria-live="polite">
+      <div id="spinner" class="spinner" aria-hidden="true"></div>
+      <span id="statusText">Consultando el resultado…</span>
+    </div>
+    <div id="actions" class="actions">
+      <button id="retryButton" type="button">Reintentar</button>
+      <a id="returnLink" class="secondary" href="https://wa-consultas.macvasquez.com">Volver</a>
+    </div>
+  </main>
+
+  <script>
+    const WA_CONFIRM_URL =
+      "https://wa-consultas.macvasquez.com/api/payments/payphone/confirm";
+    const WA_PAYMENT_BASE_URL =
+      "https://wa-consultas.macvasquez.com/pagar/";
+    const PAYPHONE_CONFIRM_URL =
+      "https://pay.payphonetodoesposible.com/api/button/V2/Confirm";
+
+    const params = new URLSearchParams(window.location.search);
+    const id = String(params.get("id") || "").trim();
+    const clientTransactionId = String(
+      params.get("clientTransactionId") || ""
+    ).trim();
+    const orderToken = String(params.get("orderToken") || "").trim();
+
+    const title = document.getElementById("title");
+    const copy = document.getElementById("copy");
+    const status = document.getElementById("status");
+    const statusText = document.getElementById("statusText");
+    const spinner = document.getElementById("spinner");
+    const actions = document.getElementById("actions");
+    const retryButton = document.getElementById("retryButton");
+    const returnLink = document.getElementById("returnLink");
+
+    if (/^[A-Za-z0-9_-]{32,128}$/.test(orderToken)) {
+      returnLink.href =
+        WA_PAYMENT_BASE_URL + encodeURIComponent(orderToken);
+    }
+
+    function setStatus(kind, heading, message) {
+      title.textContent = heading;
+      copy.textContent = message;
+      status.className = "status " + kind;
+      statusText.textContent = message;
+      spinner.style.display = kind === "" ? "block" : "none";
+      actions.classList.toggle("visible", kind === "error");
+    }
+
+    function asRecord(value) {
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : null;
+    }
+
+    async function loadExistingPayphoneToken() {
+      const response = await fetch("./order-status.html", {
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        throw new Error("No se pudo cargar la configuración de PayPhone.");
+      }
+
+      const source = await response.text();
+      const match = source.match(
+        /const\s+token\s*=\s*(['"])(Bearer\s+[^'"]+)\1\s*;/
+      );
+      if (!match || !match[2]) {
+        throw new Error("No se encontró la configuración de PayPhone.");
+      }
+      return match[2];
+    }
+
+    async function confirmPayment() {
+      actions.classList.remove("visible");
+      setStatus("", "Confirmando tu pago", "Consultando el resultado…");
+
+      if (!/^\d+$/.test(id)) {
+        throw new Error("PayPhone no devolvió un identificador válido.");
+      }
+      if (!/^WC-[A-Za-z0-9]{8,64}$/.test(clientTransactionId)) {
+        throw new Error("La orden de WhatsApp no es válida.");
+      }
+      if (!/^[A-Za-z0-9_-]{32,128}$/.test(orderToken)) {
+        throw new Error("No se recibió el identificador seguro de la orden.");
+      }
+
+      const authorization = await loadExistingPayphoneToken();
+      const payphoneResponse = await fetch(PAYPHONE_CONFIRM_URL, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-store",
+        referrerPolicy: "origin",
+        headers: {
+          "Authorization": authorization,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id: Number(id),
+          clientTxId: clientTransactionId
+        })
+      });
+
+      const rawText = await payphoneResponse.text();
+      let confirmation = null;
+      try {
+        confirmation = asRecord(JSON.parse(rawText));
+      } catch (_) {
+        confirmation = null;
+      }
+
+      if (!payphoneResponse.ok || !confirmation) {
+        throw new Error(
+          confirmation && confirmation.message
+            ? String(confirmation.message)
+            : "PayPhone no devolvió una confirmación válida."
+        );
+      }
+
+      const completionResponse = await fetch(WA_CONFIRM_URL, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-store",
+        credentials: "omit",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id,
+          clientTransactionId,
+          orderToken,
+          confirmation
+        })
+      });
+      const completion = asRecord(
+        await completionResponse.json().catch(function () { return null; })
+      );
+
+      if (!completionResponse.ok || !completion) {
+        throw new Error(
+          completion && completion.message
+            ? String(completion.message)
+            : "El pago fue consultado, pero no se pudo acreditar todavía."
+        );
+      }
+
+      if (completion.ok && completion.redirectUrl) {
+        setStatus(
+          "success",
+          "Pago confirmado",
+          "La recarga fue acreditada. Volviendo a tu orden…"
+        );
+        window.setTimeout(function () {
+          window.location.replace(String(completion.redirectUrl));
+        }, 900);
+        return;
+      }
+
+      throw new Error(
+        completion.message || "No fue posible acreditar la recarga."
+      );
+    }
+
+    async function start() {
+      try {
+        await confirmPayment();
+      } catch (error) {
+        setStatus(
+          "error",
+          "No pudimos terminar la confirmación",
+          error && error.message
+            ? error.message
+            : "Ocurrió un error inesperado."
+        );
+      }
+    }
+
+    retryButton.addEventListener("click", start);
+    start();
+  </script>
+</body>
+</html>
