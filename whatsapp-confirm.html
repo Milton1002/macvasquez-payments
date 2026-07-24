@@ -158,23 +158,7 @@
         : null;
     }
 
-    async function loadExistingPayphoneToken() {
-      const response = await fetch("./order-status.html", {
-        cache: "no-store"
-      });
-      if (!response.ok) {
-        throw new Error("No se pudo cargar la configuración de PayPhone.");
-      }
-
-      const source = await response.text();
-      const match = source.match(
-        /const\s+token\s*=\s*(['"])(Bearer\s+[^'"]+)\1\s*;/
-      );
-      if (!match || !match[2]) {
-        throw new Error("No se encontró la configuración de PayPhone.");
-      }
-      return match[2];
-    }
+    const token = 'Bearer OyVLzij-fpLpyYslzFH3cD86SZieQkMj18D36ibqIA0nYnZUHj3mrmGae-UCGc_5LvAQy-LngYEmi5yRqs9aO2UyQ4CITagKa5ng1rpuWZnx9ksf2Ki4NER_FWY3kxhQcu8tGlxGc6csS-q0R1Cvioe8fiNPcTwZBYHZ-cd0QlJtJRk0M1J4SWHxdSnqZszZ4bATNtB6xdNK93Ak-E8Jrnrv_vhCVMxNpttYue63qdyQq5kAd-vuRLBXAVDAl9f_sb7UtuY8EQRorhW074PRSFgJ7fjSPkY7I_jc9gakIXb1oQuEZ9X9UXPp1OcqS4VEACurCFMdp7eQwHpNe9_NgflubsQ';
 
     async function confirmPayment() {
       actions.classList.remove("visible");
@@ -190,15 +174,11 @@
         throw new Error("No se recibió el identificador seguro de la orden.");
       }
 
-      const authorization = await loadExistingPayphoneToken();
       const payphoneResponse = await fetch(PAYPHONE_CONFIRM_URL, {
         method: "POST",
-        mode: "cors",
-        cache: "no-store",
-        referrerPolicy: "origin",
         headers: {
-          "Authorization": authorization,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Authorization": token
         },
         body: JSON.stringify({
           id: Number(id),
